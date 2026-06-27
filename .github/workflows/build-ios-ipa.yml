@@ -1,0 +1,63 @@
+name: Build iOS IPA (for TrollStore)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Setup Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3'
+
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install
+        env:
+          NO_FLIPPER: 1
+
+      - name: Build iOS Project (Unsigned for TrollStore)
+        run: |
+          cd ios
+          xcodebuild -workspace Listen1.xcworkspace \
+            -scheme Listen1 \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/Listen1.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export IPA (Unsigned)
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath ios/build/Listen1.xcarchive \
+            -exportOptionsPlist ios/Info.plist \
+            -exportPath output \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Listen1-iOS-IPA
+          path: output/Listen1.ipa
+          retention-days: 7
