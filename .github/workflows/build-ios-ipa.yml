@@ -18,15 +18,34 @@ jobs:
           node-version: '18'
           cache: 'npm'
 
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        id: node-cache
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Install npm dependencies
-        run: npm install --legacy-peer-deps
+        if: steps.node-cache.outputs.cache-hit != 'true'
+        run: npm install --legacy-peer-deps --prefer-offline
 
       - name: Setup Ruby (for CocoaPods)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3'
+          bundler-cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        id: pods-cache
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
 
       - name: Install CocoaPods dependencies
+        if: steps.pods-cache.outputs.cache-hit != 'true'
         run: |
           cd ios
           pod install
