@@ -16,20 +16,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
 
-      - name: Cache node_modules
+      - name: Enable yarn (corepack)
+        run: corepack enable && yarn set version 1.22.22
+
+      - name: Cache yarn cache
         uses: actions/cache@v4
-        id: node-cache
+        id: yarn-cache
         with:
-          path: node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          path: ~/.cache/yarn
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
 
-      - name: Install npm dependencies
-        if: steps.node-cache.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --prefer-offline
+      - name: Install dependencies with yarn (fast)
+        run: |
+          yarn config set registry https://registry.npmmirror.com
+          yarn install --frozen-lockfile --network-timeout 300000
 
       - name: Setup Ruby (for CocoaPods)
         uses: ruby/setup-ruby@v1
@@ -48,7 +49,7 @@ jobs:
         if: steps.pods-cache.outputs.cache-hit != 'true'
         run: |
           cd ios
-          pod install
+          pod install --repo-update
         env:
           NO_FLIPPER: 1
 
