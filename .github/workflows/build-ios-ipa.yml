@@ -29,35 +29,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-modules-
 
-      - name: Install dependencies with npm (mirror)
+      - name: Install dependencies
         if: steps.node-cache.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=verbose
-
-      - name: Setup Ruby (for CocoaPods)
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3'
-          bundler-cache: true
-
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        id: pods-cache
-        with:
-          path: ios/Pods
-          key: ${{ runner.os }}-pods-${{ hashFiles('**/Podfile.lock') }}
-
-      - name: Install CocoaPods dependencies
-        if: steps.pods-cache.outputs.cache-hit != 'true'
-        run: |
-          cd ios
-          pod install --repo-update
-        env:
-          NO_FLIPPER: 1
+        run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
           cd ios
-          xcodebuild -workspace Listen1.xcworkspace \
+          xcodebuild -project Listen1.xcodeproj \
             -scheme Listen1 \
             -configuration Release \
             -sdk iphoneos \
