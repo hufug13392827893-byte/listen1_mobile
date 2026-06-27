@@ -7,9 +7,7 @@ on:
 
 jobs:
   build-ios:
-    # Use macos-13 with Xcode 15.2 instead of macos-latest (Xcode 16.4)
-    # RN 0.62.3 is incompatible with newer Xcode versions
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +32,13 @@ jobs:
       - name: Install dependencies
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
+
+      - name: Install iOS Simulator runtime (required by RN 0.62 glog)
+        run: |
+          # Xcode 16.4 on macos-latest may need simulator runtime installed
+          # for glog configure to succeed
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcodebuild -downloadPlatform iOS -quiet 2>&1 | tail -5 || true
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
