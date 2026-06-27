@@ -33,22 +33,65 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
 
-      - name: Pre-build third-party deps for RN 0.62 on Xcode 16
+      - name: Patch RN 0.62 third-party build for Xcode 26
+        shell: bash
         run: |
-          # RN 0.62.3's third-party deps (glog) fail on Xcode 16 because
-          # iOS Simulator runtime is not bundled on macOS 15 Sequoia.
-          # Fix: install the runtime OR skip the broken configure check.
-          GLOG_DIR=node_modules/react-native/third-party/glog-0.3.5
-          if [ -d "$GLOG_DIR" ]; then
-            echo "Patching glog configure to skip broken iOS simulator check..."
-            cd "$GLOG_DIR"
-            # Save original configure, modify to always pass iOS compiler check
-            cp configure configure.bak
-            # Replace the arm-apple-darwin check to also accept arm64-apple-ios
-            sed -i '' 's/arm-apple-darwin/arm64-apple-ios|arm-apple-darwin/g' configure
-            echo "glog patched"
-            cd ../../../..
+          # RN 0.62.3 uses ios-configure-glog.sh which fails on Xcode 26
+          # because the configure script can't create executables when cross-compiling
+          # for iOS (no simulator runtime available to run the test binary).
+          #
+          # Fix: Pre-build glog manually before xcodebuild runs the script phase,
+          # and patch the configure script to accept cross-compilation.
+
+          GLOG_DIR="node_modules/react-native/third-party/glog-0.3.5"
+
+          if [ ! -d "$GLOG_DIR" ]; then
+            echo "glog dir not found, skipping"
+            exit 0
           fi
+
+          rm -rf "$GLOG_DIR/build"
+          cd "$GLOG_DIR"
+
+          # 1. Mark as cross-compile so configure does not try to run test executables
+          export ac_cv_prog_cc_cross=yes
+          export ac_cv_prog_cxx_cross=yes
+
+          # 2. Get iOS SDK paths
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+          PLATFORM_DIR=$(xcrun --sdk iphoneos --show-sdk-platform-path 2>/dev/null)
+
+          # 3. Run configure for iOS arm64 cross-compilation
+          ./configure \
+            --host=arm-apple-darwin \
+            --disable-shared \
+            --enable-static \
+            CC="$(xcrun --sdk iphoneos --find clang 2>/dev/null)" \
+            CXX="$(xcrun --sdk iphoneos --find clang++ 2>/dev/null)" \
+            CFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+            CXXFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+            LDFLAGS="-arch arm64 -isysroot $SDKROOT" \
+            2>&1 | tail -20
+
+          echo "=== glog configure done ==="
+
+          # 4. Build
+          make -j$(sysctl -n hw.logicalcpu) 2>&1 | tail -10
+
+          echo "=== glog make done ==="
+
+          # 5. Install headers and libs to the expected location
+          # xcodebuild expects them under glog-0.3.5/src/glog/logging.h
+          make install 2>&1 | tail -10
+
+          echo "=== glog install done ==="
+
+          # Verify all expected files exist
+          echo "=== Verification ==="
+          find . -name "logging.h" -type f 2>/dev/null
+          find . -name "libglog*" -type f 2>/dev/null
+
+          cd ../../../..
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
