@@ -19,7 +19,7 @@ jobs:
           cache: 'npm'
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Setup Ruby (for CocoaPods)
         uses: ruby/setup-ruby@v1
@@ -50,7 +50,7 @@ jobs:
         run: |
           xcodebuild -exportArchive \
             -archivePath ios/build/Listen1.xcarchive \
-            -exportOptionsPlist ios/Info.plist \
+            -exportOptionsPlist ios/ExportOptions.plist \
             -exportPath output \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
