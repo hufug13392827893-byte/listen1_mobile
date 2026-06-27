@@ -83,16 +83,17 @@ jobs:
 
           echo "=== configure done ==="
 
-          # Build
-          make -j$(sysctl -n hw.logicalcpu) 2>&1
+          # Build only the library (skip tests which fail on iOS)
+          make -j$(sysctl -n hw.logicalcpu) all-lib 2>&1
 
           echo "=== make done ==="
 
           # Verify key outputs
           echo "=== Verification ==="
           ls -la src/glog/logging.h
-          ls -la .libs/libglog.a 2>/dev/null || ls -la libglog.a 2>/dev/null || echo "No .a found"
           ls -la src/config.h
+          echo "=== checking for .a ==="
+          find . -name "*.a" -type f 2>/dev/null || echo "No .a found"
 
           cd ../../../..
           echo "=== glog pre-build complete ==="
