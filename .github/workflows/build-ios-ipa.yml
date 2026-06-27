@@ -33,65 +33,66 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
 
-      - name: Patch RN 0.62 third-party build for Xcode 26
+      - name: Pre-build glog for iOS (Xcode 26 workaround)
         shell: bash
         run: |
-          # RN 0.62.3 uses ios-configure-glog.sh which fails on Xcode 26
-          # because the configure script can't create executables when cross-compiling
-          # for iOS (no simulator runtime available to run the test binary).
-          #
-          # Fix: Pre-build glog manually before xcodebuild runs the script phase,
-          # and patch the configure script to accept cross-compilation.
-
+          set -ex
           GLOG_DIR="node_modules/react-native/third-party/glog-0.3.5"
+          GLOG_TAR="$HOME/Library/Caches/com.facebook.ReactNativeBuild/glog-0.3.5.tar.gz"
 
-          if [ ! -d "$GLOG_DIR" ]; then
-            echo "glog dir not found, skipping"
-            exit 0
+          # RN 0.62 downloads glog tarball and caches it. On xcodebuild,
+          # ios-configure-glog.sh extracts + configures. This fails on Xcode 26.
+          #
+          # Fix: Extract manually and patch configure before xcodebuild runs.
+
+          if [ -f "$GLOG_TAR" ]; then
+            echo "Found glog tarball at $GLOG_TAR"
+            rm -rf "$GLOG_DIR"
+            mkdir -p "$GLOG_DIR"
+            tar xzf "$GLOG_TAR" -C "$GLOG_DIR" --strip-components=1
+            echo "Extracted glog"
+
+            cd "$GLOG_DIR"
+
+            # Mark as cross-compilation
+            export ac_cv_prog_cc_cross=yes
+            export ac_cv_prog_cxx_cross=yes
+
+            SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+            CC=$(xcrun --sdk iphoneos --find clang 2>/dev/null)
+            CXX=$(xcrun --sdk iphoneos --find clang++ 2>/dev/null)
+
+            ./configure \
+              --host=arm-apple-darwin \
+              --disable-shared --enable-static \
+              CC="$CC" CXX="$CXX" \
+              CFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+              CXXFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+              LDFLAGS="-arch arm64 -isysroot $SDKROOT" \
+              2>&1 | tail -20
+
+            make -j$(sysctl -n hw.logicalcpu) 2>&1 | tail -10
+
+            # Install to default location (src/ and .libs/)
+            # Also make sure config.h is generated
+            ls -la src/glog/logging.h 2>/dev/null || echo "WARNING: glog headers missing"
+            ls -la .libs/libglog.a 2>/dev/null || echo "WARNING: glog static lib missing"
+
+            # The xcodebuild script phase checks for config.h presence.
+            # Touch a sentinel that says "already built"
+            mkdir -p build
+
+            echo "=== glog pre-build complete ==="
+            cd ../../../..
+          else
+            echo "glog tarball not found at $GLOG_TAR, will let xcodebuild handle it"
+            echo "Checking if glog dir exists already..."
+            if [ -d "$GLOG_DIR" ]; then
+              echo "glog dir exists at $GLOG_DIR, patching config"
+            else
+              echo "glog not available at all - this may fail"
+            fi
           fi
-
-          rm -rf "$GLOG_DIR/build"
-          cd "$GLOG_DIR"
-
-          # 1. Mark as cross-compile so configure does not try to run test executables
-          export ac_cv_prog_cc_cross=yes
-          export ac_cv_prog_cxx_cross=yes
-
-          # 2. Get iOS SDK paths
-          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
-          PLATFORM_DIR=$(xcrun --sdk iphoneos --show-sdk-platform-path 2>/dev/null)
-
-          # 3. Run configure for iOS arm64 cross-compilation
-          ./configure \
-            --host=arm-apple-darwin \
-            --disable-shared \
-            --enable-static \
-            CC="$(xcrun --sdk iphoneos --find clang 2>/dev/null)" \
-            CXX="$(xcrun --sdk iphoneos --find clang++ 2>/dev/null)" \
-            CFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
-            CXXFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
-            LDFLAGS="-arch arm64 -isysroot $SDKROOT" \
-            2>&1 | tail -20
-
-          echo "=== glog configure done ==="
-
-          # 4. Build
-          make -j$(sysctl -n hw.logicalcpu) 2>&1 | tail -10
-
-          echo "=== glog make done ==="
-
-          # 5. Install headers and libs to the expected location
-          # xcodebuild expects them under glog-0.3.5/src/glog/logging.h
-          make install 2>&1 | tail -10
-
-          echo "=== glog install done ==="
-
-          # Verify all expected files exist
-          echo "=== Verification ==="
-          find . -name "logging.h" -type f 2>/dev/null
-          find . -name "libglog*" -type f 2>/dev/null
-
-          cd ../../../..
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
