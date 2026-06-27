@@ -33,12 +33,22 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
 
-      - name: Install iOS Simulator runtime (required by RN 0.62 glog)
+      - name: Pre-build third-party deps for RN 0.62 on Xcode 16
         run: |
-          # Xcode 16.4 on macos-latest may need simulator runtime installed
-          # for glog configure to succeed
-          sudo xcode-select -s /Applications/Xcode_16.4.app
-          xcodebuild -downloadPlatform iOS -quiet 2>&1 | tail -5 || true
+          # RN 0.62.3's third-party deps (glog) fail on Xcode 16 because
+          # iOS Simulator runtime is not bundled on macOS 15 Sequoia.
+          # Fix: install the runtime OR skip the broken configure check.
+          GLOG_DIR=node_modules/react-native/third-party/glog-0.3.5
+          if [ -d "$GLOG_DIR" ]; then
+            echo "Patching glog configure to skip broken iOS simulator check..."
+            cd "$GLOG_DIR"
+            # Save original configure, modify to always pass iOS compiler check
+            cp configure configure.bak
+            # Replace the arm-apple-darwin check to also accept arm64-apple-ios
+            sed -i '' 's/arm-apple-darwin/arm64-apple-ios|arm-apple-darwin/g' configure
+            echo "glog patched"
+            cd ../../../..
+          fi
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
