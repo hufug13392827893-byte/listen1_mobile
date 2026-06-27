@@ -7,7 +7,9 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-latest
+    # Use macos-13 with Xcode 15.2 instead of macos-latest (Xcode 16.4)
+    # RN 0.62.3 is incompatible with newer Xcode versions
+    runs-on: macos-13
     steps:
       - name: Checkout
         uses: actions/checkout@v4
