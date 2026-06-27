@@ -17,6 +17,9 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Use npm mirror for faster downloads
+        run: npm config set registry https://registry.npmmirror.com && npm config set strict-ssl false
+
       - name: Cache node_modules
         uses: actions/cache@v4
         id: node-cache
@@ -26,9 +29,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-modules-
 
-      - name: Install dependencies with npm
+      - name: Install dependencies with npm (mirror)
         if: steps.node-cache.outputs.cache-hit != 'true'
-        run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
+        run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=verbose
 
       - name: Setup Ruby (for CocoaPods)
         uses: ruby/setup-ruby@v1
