@@ -33,66 +33,69 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: npm install --legacy-peer-deps --no-audit --no-fund --loglevel=warn
 
-      - name: Pre-build glog for iOS (Xcode 26 workaround)
+      - name: Download and pre-build glog for iOS
         shell: bash
         run: |
           set -ex
+
           GLOG_DIR="node_modules/react-native/third-party/glog-0.3.5"
-          GLOG_TAR="$HOME/Library/Caches/com.facebook.ReactNativeBuild/glog-0.3.5.tar.gz"
+          GLOG_CACHE="$HOME/Library/Caches/com.facebook.ReactNativeBuild"
 
-          # RN 0.62 downloads glog tarball and caches it. On xcodebuild,
-          # ios-configure-glog.sh extracts + configures. This fails on Xcode 26.
-          #
-          # Fix: Extract manually and patch configure before xcodebuild runs.
+          # Create cache dir if it doesn't exist
+          mkdir -p "$GLOG_CACHE"
 
-          if [ -f "$GLOG_TAR" ]; then
-            echo "Found glog tarball at $GLOG_TAR"
-            rm -rf "$GLOG_DIR"
-            mkdir -p "$GLOG_DIR"
-            tar xzf "$GLOG_TAR" -C "$GLOG_DIR" --strip-components=1
-            echo "Extracted glog"
+          # Delete any existing glog dir (RN script expects fresh extraction)
+          rm -rf "$GLOG_DIR"
 
-            cd "$GLOG_DIR"
+          # Download glog-0.3.5 source from GitHub
+          echo "Downloading glog-0.3.5..."
+          curl -sL -o "$GLOG_CACHE/glog-0.3.5.tar.gz" \
+            "https://github.com/google/glog/archive/refs/tags/v0.3.5.tar.gz"
 
-            # Mark as cross-compilation
-            export ac_cv_prog_cc_cross=yes
-            export ac_cv_prog_cxx_cross=yes
+          # Extract to the expected location
+          mkdir -p "$GLOG_DIR"
+          tar xzf "$GLOG_CACHE/glog-0.3.5.tar.gz" -C "$GLOG_DIR" --strip-components=1
 
-            SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
-            CC=$(xcrun --sdk iphoneos --find clang 2>/dev/null)
-            CXX=$(xcrun --sdk iphoneos --find clang++ 2>/dev/null)
+          echo "glog source extracted to $GLOG_DIR"
 
-            ./configure \
-              --host=arm-apple-darwin \
-              --disable-shared --enable-static \
-              CC="$CC" CXX="$CXX" \
-              CFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
-              CXXFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
-              LDFLAGS="-arch arm64 -isysroot $SDKROOT" \
-              2>&1 | tail -20
+          cd "$GLOG_DIR"
 
-            make -j$(sysctl -n hw.logicalcpu) 2>&1 | tail -10
+          # Mark as cross-compilation (critical for Xcode 26)
+          export ac_cv_prog_cc_cross=yes
+          export ac_cv_prog_cxx_cross=yes
 
-            # Install to default location (src/ and .libs/)
-            # Also make sure config.h is generated
-            ls -la src/glog/logging.h 2>/dev/null || echo "WARNING: glog headers missing"
-            ls -la .libs/libglog.a 2>/dev/null || echo "WARNING: glog static lib missing"
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null)
+          CC=$(xcrun --sdk iphoneos --find clang 2>/dev/null)
+          CXX=$(xcrun --sdk iphoneos --find clang++ 2>/dev/null)
 
-            # The xcodebuild script phase checks for config.h presence.
-            # Touch a sentinel that says "already built"
-            mkdir -p build
+          echo "SDKROOT=$SDKROOT"
+          echo "CC=$CC"
 
-            echo "=== glog pre-build complete ==="
-            cd ../../../..
-          else
-            echo "glog tarball not found at $GLOG_TAR, will let xcodebuild handle it"
-            echo "Checking if glog dir exists already..."
-            if [ -d "$GLOG_DIR" ]; then
-              echo "glog dir exists at $GLOG_DIR, patching config"
-            else
-              echo "glog not available at all - this may fail"
-            fi
-          fi
+          # Configure for iOS arm64
+          ./configure \
+            --host=arm-apple-darwin \
+            --disable-shared --enable-static \
+            CC="$CC" CXX="$CXX" \
+            CFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+            CXXFLAGS="-arch arm64 -isysroot $SDKROOT -miphoneos-version-min=12.0" \
+            LDFLAGS="-arch arm64 -isysroot $SDKROOT" \
+            2>&1
+
+          echo "=== configure done ==="
+
+          # Build
+          make -j$(sysctl -n hw.logicalcpu) 2>&1
+
+          echo "=== make done ==="
+
+          # Verify key outputs
+          echo "=== Verification ==="
+          ls -la src/glog/logging.h
+          ls -la .libs/libglog.a 2>/dev/null || ls -la libglog.a 2>/dev/null || echo "No .a found"
+          ls -la src/config.h
+
+          cd ../../../..
+          echo "=== glog pre-build complete ==="
 
       - name: Build iOS Project (Unsigned for TrollStore)
         run: |
